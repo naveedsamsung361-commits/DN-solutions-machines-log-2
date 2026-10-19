@@ -1517,15 +1517,17 @@ export const BreakdownFormModal: React.FC<BreakdownFormModalProps> = ({
                     onChange={(e) => setStatus(e.target.value as any)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
                   >
-                    <option value="Reported">Reported</option>
-                    <option value="Assigned">Assigned</option>
-                    <option value="Diagnosis in Progress">Diagnosis in Progress</option>
-                    <option value="Waiting for Parts">Waiting for Parts</option>
-                    <option value="Waiting for Approval">Waiting for Approval</option>
-                    <option value="Repair in Progress">Repair in Progress</option>
-                    <option value="Testing">Testing</option>
-                    <option value="Resolved">Resolved</option>
-                    <option value="Closed">Closed (Final sign-off)</option>
+                    <option value="Reported">1. Reported</option>
+                    <option value="Assigned">2. Assigned</option>
+                    <option value="Diagnosis in Progress">3. Diagnosis in Progress</option>
+                    <option value="Waiting for Parts">4. Waiting for Parts</option>
+                    <option value="Waiting for Approval">5. Waiting for Approval</option>
+                    <option value="Repair in Progress">6. Repair in Progress</option>
+                    <option value="Testing">7. Testing</option>
+                    <option value="Awaiting Quality Approval">8. Awaiting Quality Approval</option>
+                    <option value="Awaiting Restart Approval">9. Awaiting Restart Approval</option>
+                    <option value="Resolved">10. Resolved</option>
+                    <option value="Closed">11. Closed (Final sign-off)</option>
                   </select>
                 </div>
 

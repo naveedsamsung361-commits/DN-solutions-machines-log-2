@@ -64,6 +64,10 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
         return 'bg-amber-950 text-amber-300 border-amber-800';
       case 'Waiting for Approval':
         return 'bg-purple-950 text-purple-300 border-purple-800';
+      case 'Awaiting Quality Approval':
+        return 'bg-pink-950 text-pink-300 border-pink-800';
+      case 'Awaiting Restart Approval':
+        return 'bg-amber-950 text-amber-300 border-amber-800 ring-1 ring-amber-500/50';
       case 'Testing':
         return 'bg-cyan-950 text-cyan-300 border-cyan-800';
       default:

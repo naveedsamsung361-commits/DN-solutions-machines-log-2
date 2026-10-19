@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Cpu, 
   PlayCircle, 
@@ -18,7 +18,14 @@ import {
   Filter,
   Layers,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Info,
+  DollarSign,
+  X,
+  HelpCircle,
+  Building2,
+  Factory,
+  RefreshCw
 } from 'lucide-react';
 import { DateFilterOption, Machine, BreakdownTicket, Customer } from '../types';
 import { storageService } from '../services/storage';
@@ -28,24 +35,75 @@ interface DashboardProps {
   onOpenNewTicket: () => void;
   onSelectMachine: (machine: Machine) => void;
   onSelectTicket: (ticket: BreakdownTicket) => void;
+  onOpenAIAssistant?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
   onNavigate,
   onOpenNewTicket,
   onSelectMachine,
-  onSelectTicket
+  onSelectTicket,
+  onOpenAIAssistant
 }) => {
+  // Multi-dimensional filters
   const [dateFilter, setDateFilter] = useState<DateFilterOption>('last30');
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
+  const [selectedMachineId, setSelectedMachineId] = useState<string>('all');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('all');
+  const [selectedFactory, setSelectedFactory] = useState<string>('all');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [showFormulaInfo, setShowFormulaInfo] = useState(false);
   const [chartMetric, setChartMetric] = useState<'downtime' | 'count'>('downtime');
 
-  const metrics = storageService.getDashboardMetrics(dateFilter, customStart, customEnd);
-  const machines = storageService.getMachines();
+  const allMachines = storageService.getMachines();
   const allTickets = storageService.getTickets();
-  const filteredTickets = storageService.filterByDateRange(allTickets, dateFilter, customStart, customEnd);
   const customers = storageService.getCustomers();
+  const handovers = storageService.getShiftHandovers();
+
+  // Extract unique factories and departments
+  const uniqueFactories = useMemo(() => {
+    const set = new Set<string>();
+    allMachines.forEach(m => { if (m.factory) set.add(m.factory); });
+    return Array.from(set);
+  }, [allMachines]);
+
+  const uniqueDepartments = useMemo(() => {
+    const set = new Set<string>();
+    allMachines.forEach(m => { if (m.department) set.add(m.department); });
+    return Array.from(set);
+  }, [allMachines]);
+
+  // Query metrics with multi-dimensional criteria
+  const metrics = storageService.getDashboardMetrics(
+    dateFilter, 
+    customStart, 
+    customEnd,
+    {
+      machineId: selectedMachineId !== 'all' ? selectedMachineId : undefined,
+      customerId: selectedCustomerId !== 'all' ? selectedCustomerId : undefined,
+      factory: selectedFactory !== 'all' ? selectedFactory : undefined,
+      department: selectedDepartment !== 'all' ? selectedDepartment : undefined
+    }
+  );
+
+  // Scoped tickets for interactive charts
+  const filteredTickets = useMemo(() => {
+    let tList = allTickets;
+    if (selectedMachineId !== 'all') {
+      tList = tList.filter(t => t.machineId === selectedMachineId);
+    }
+    if (selectedCustomerId !== 'all') {
+      tList = tList.filter(t => t.customerId === selectedCustomerId);
+    }
+    if (selectedFactory !== 'all') {
+      tList = tList.filter(t => t.factory === selectedFactory);
+    }
+    if (selectedDepartment !== 'all') {
+      tList = tList.filter(t => t.department === selectedDepartment);
+    }
+    return storageService.filterByDateRange(tList, dateFilter, customStart, customEnd);
+  }, [allTickets, dateFilter, customStart, customEnd, selectedMachineId, selectedCustomerId, selectedFactory, selectedDepartment]);
 
   // Calculate Breakdown by Category
   const categoryStats: Record<string, { count: number; downtime: number }> = {};
@@ -63,36 +121,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const maxCategoryVal = Math.max(...categoryList.map(c => chartMetric === 'downtime' ? c.downtimeHours : c.count), 1);
 
   // Downtime by Machine
-  const machineDowntimeList = machines.map(m => {
-    const mTickets = filteredTickets.filter(t => t.machineId === m.machineId || t.machineName === m.machineName);
-    const downtimeMinutes = mTickets.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0);
-    return {
-      machine: m,
-      ticketCount: mTickets.length,
-      downtimeHours: parseFloat((downtimeMinutes / 60).toFixed(1))
-    };
-  }).sort((a, b) => b.downtimeHours - a.downtimeHours);
+  const machineDowntimeList = allMachines
+    .filter(m => selectedMachineId === 'all' || m.machineId === selectedMachineId)
+    .map(m => {
+      const mTickets = filteredTickets.filter(t => t.machineId === m.machineId || t.machineName === m.machineName);
+      const downtimeMinutes = mTickets.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0);
+      return {
+        machine: m,
+        ticketCount: mTickets.length,
+        downtimeHours: parseFloat((downtimeMinutes / 60).toFixed(1))
+      };
+    }).sort((a, b) => b.downtimeHours - a.downtimeHours);
 
   const maxMachineDowntime = Math.max(...machineDowntimeList.map(m => m.downtimeHours), 1);
 
-  // Downtime by Customer
-  const customerDowntimeList = customers.map(c => {
-    const cTickets = filteredTickets.filter(t => t.customerId === c.id || t.customerName === c.name);
-    const downtimeMinutes = cTickets.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0);
-    return {
-      customer: c,
-      ticketCount: cTickets.length,
-      downtimeHours: parseFloat((downtimeMinutes / 60).toFixed(1))
-    };
-  }).sort((a, b) => b.downtimeHours - a.downtimeHours);
+  // Unacknowledged handovers
+  const unackHandoversCount = handovers.filter(h => !h.acknowledgedAt).length;
 
-  // Monthly breakdown trend (Last 6 months)
-  const monthLabels = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'];
-  const monthData = [4, 6, 3, 5, 4, filteredTickets.length || 3];
+  const hasActiveFilters = selectedMachineId !== 'all' || selectedCustomerId !== 'all' || selectedFactory !== 'all' || selectedDepartment !== 'all';
+
+  const resetFilters = () => {
+    setSelectedMachineId('all');
+    setSelectedCustomerId('all');
+    setSelectedFactory('all');
+    setSelectedDepartment('all');
+    setDateFilter('last30');
+  };
 
   return (
     <div className="space-y-6 pb-12">
-      {/* Top Banner & Date Filter Bar */}
+      {/* Top Banner & Control Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm">
         <div>
           <div className="flex items-center gap-2">
@@ -104,68 +162,211 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time telemetry, breakdown metrics, downtime distribution, and maintenance compliance.
+            Real-time fleet telemetry, breakdown metrics, downtime distribution, and maintenance compliance.
           </p>
         </div>
 
-        {/* Date Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/80 p-1.5 rounded-xl border border-slate-800">
-          {(
-            [
-              { id: 'today', label: 'Today' },
-              { id: 'yesterday', label: 'Yesterday' },
-              { id: 'last7', label: '7 Days' },
-              { id: 'last30', label: '30 Days' },
-              { id: 'thisMonth', label: 'This Month' },
-              { id: 'lastMonth', label: 'Last Month' },
-              { id: 'custom', label: 'Custom' }
-            ] as { id: DateFilterOption; label: string }[]
-          ).map(tab => (
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center gap-2">
+          {onOpenAIAssistant && (
             <button
-              key={tab.id}
-              onClick={() => setDateFilter(tab.id)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                dateFilter === tab.id
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
+              onClick={onOpenAIAssistant}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-xl text-xs font-semibold shadow-md shadow-indigo-900/30 flex items-center gap-1.5 transition-all transform active:scale-95 cursor-pointer"
             >
-              {tab.label}
+              <Sparkles className="w-4 h-4 text-indigo-200 animate-pulse" />
+              <span>Ask AI Assistant</span>
             </button>
-          ))}
+          )}
+
+          <button
+            onClick={() => setShowFormulaInfo(!showFormulaInfo)}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="View MTTR, MTBF, Availability, and OEE calculation definitions"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-blue-400" />
+            <span>Formulas & Standards</span>
+          </button>
         </div>
       </div>
 
-      {/* Custom Date Range Picker if Selected */}
-      {dateFilter === 'custom' && (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center gap-3 text-xs animate-in fade-in">
-          <span className="text-slate-300 font-medium">Custom Range:</span>
-          <input
-            type="date"
-            value={customStart}
-            onChange={(e) => setCustomStart(e.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-blue-500"
-          />
-          <span className="text-slate-400">to</span>
-          <input
-            type="date"
-            value={customEnd}
-            onChange={(e) => setCustomEnd(e.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-blue-500"
-          />
+      {/* Multi-Dimensional Filter Bar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800 text-xs">
+          <div className="flex items-center gap-2 text-slate-300 font-semibold">
+            <Filter className="w-4 h-4 text-blue-400" />
+            <span>OPERATIONAL DATA FILTERS</span>
+          </div>
+          {hasActiveFilters && (
+            <button
+              onClick={resetFilters}
+              className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Reset Filters</span>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-5 gap-2.5 text-xs">
+          {/* Date Filter Range */}
+          <div>
+            <label className="text-[10px] font-mono uppercase text-slate-400 block mb-1">Time Horizon</label>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as DateFilterOption)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="last7">Last 7 Days</option>
+              <option value="last30">Last 30 Days</option>
+              <option value="thisMonth">This Month</option>
+              <option value="lastMonth">Last Month</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
+
+          {/* Machine Filter */}
+          <div>
+            <label className="text-[10px] font-mono uppercase text-slate-400 block mb-1">Machine</label>
+            <select
+              value={selectedMachineId}
+              onChange={(e) => setSelectedMachineId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">All Machines ({allMachines.length})</option>
+              {allMachines.map(m => (
+                <option key={m.id} value={m.machineId}>
+                  {m.machineId} - {m.model}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Customer Filter */}
+          <div>
+            <label className="text-[10px] font-mono uppercase text-slate-400 block mb-1">Customer</label>
+            <select
+              value={selectedCustomerId}
+              onChange={(e) => setSelectedCustomerId(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">All Customers ({customers.length})</option>
+              {customers.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Factory Filter */}
+          <div>
+            <label className="text-[10px] font-mono uppercase text-slate-400 block mb-1">Factory</label>
+            <select
+              value={selectedFactory}
+              onChange={(e) => setSelectedFactory(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">All Factories</option>
+              {uniqueFactories.map(f => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Department Filter */}
+          <div>
+            <label className="text-[10px] font-mono uppercase text-slate-400 block mb-1">Department</label>
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+              <option value="all">All Departments</option>
+              {uniqueDepartments.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Custom Date Pickers */}
+        {dateFilter === 'custom' && (
+          <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex flex-wrap items-center gap-3 text-xs animate-in fade-in">
+            <span className="text-slate-300 font-medium">Custom Range:</span>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+            </input>
+            <span className="text-slate-400">to</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none focus:border-blue-500"
+            >
+            </input>
+          </div>
+        )}
+      </div>
+
+      {/* Calculation Definitions Dialog (Formulas & Standards) */}
+      {showFormulaInfo && (
+        <div className="bg-slate-900 border border-blue-500/40 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Info className="w-5 h-5 text-blue-400" />
+              <h3 className="font-heading-industrial font-bold text-sm text-white uppercase tracking-wider">
+                Industrial Calculation Definitions & Standards (ISO / DIN 31051)
+              </h3>
+            </div>
+            <button onClick={() => setShowFormulaInfo(false)} className="text-slate-400 hover:text-white p-1">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="font-mono font-bold text-blue-400 uppercase block">MTTR (Mean Time to Repair)</span>
+              <p className="text-slate-300">{metrics.calculationDefinitions.mttr}</p>
+              <span className="text-[10px] text-slate-400 block pt-1">Counts verified completed repairs. Excludes parts waiting delays.</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="font-mono font-bold text-indigo-400 uppercase block">MTBF (Mean Time Between Failures)</span>
+              <p className="text-slate-300">{metrics.calculationDefinitions.mtbf}</p>
+              <span className="text-[10px] text-slate-400 block pt-1">Measures operational uptime reliability between critical fault trips.</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="font-mono font-bold text-emerald-400 uppercase block">Machine Availability (%)</span>
+              <p className="text-slate-300">{metrics.calculationDefinitions.availability}</p>
+              <span className="text-[10px] text-slate-400 block pt-1">Planned production time baseline = 360 hrs/month (two shifts).</span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+              <span className="font-mono font-bold text-purple-400 uppercase block">OEE (Overall Equipment Effectiveness)</span>
+              <p className="text-slate-300">{metrics.calculationDefinitions.oee}</p>
+              <span className="text-[10px] text-slate-400 block pt-1">Requires measured production counts and scrap ratios to display factually.</span>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Operational Machine Fleet Status Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* Total Registered */}
         <div 
           onClick={() => onNavigate('machines')}
-          className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm"
+          className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm group"
         >
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-medium uppercase tracking-wider">Total CNC Machines</span>
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
+            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400 group-hover:scale-105 transition-transform">
               <Cpu className="w-4 h-4" />
             </div>
           </div>
@@ -183,11 +384,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Running */}
         <div 
           onClick={() => onNavigate('machines')}
-          className="bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm"
+          className="bg-slate-900 border border-slate-800 hover:border-emerald-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm group"
         >
           <div className="flex items-center justify-between text-emerald-400 mb-2">
             <span className="text-xs font-medium uppercase tracking-wider">Currently Running</span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:scale-105 transition-transform">
               <PlayCircle className="w-4 h-4" />
             </div>
           </div>
@@ -204,11 +405,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Under Maintenance */}
         <div 
           onClick={() => onNavigate('tickets')}
-          className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm"
+          className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm group"
         >
           <div className="flex items-center justify-between text-amber-400 mb-2">
             <span className="text-xs font-medium uppercase tracking-wider">Under Maintenance</span>
-            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
+            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400 group-hover:scale-105 transition-transform">
               <Wrench className="w-4 h-4" />
             </div>
           </div>
@@ -224,11 +425,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Stopped Breakdown */}
         <div 
           onClick={() => onNavigate('tickets')}
-          className="bg-slate-900 border border-slate-800 hover:border-red-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm"
+          className="bg-slate-900 border border-slate-800 hover:border-red-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm group"
         >
           <div className="flex items-center justify-between text-red-400 mb-2">
             <span className="text-xs font-medium uppercase tracking-wider">Stopped Breakdown</span>
-            <div className="p-2 rounded-lg bg-red-500/10 text-red-400">
+            <div className="p-2 rounded-lg bg-red-500/10 text-red-400 group-hover:scale-105 transition-transform">
               <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
@@ -238,6 +439,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
           <div className="mt-3 text-[11px] text-red-400/80 flex items-center gap-1">
             <span>Critical faults: {metrics.criticalFaults}</span>
+          </div>
+        </div>
+
+        {/* Unacknowledged Handovers / Approvals */}
+        <div 
+          onClick={() => onNavigate('handover')}
+          className="bg-slate-900 border border-slate-800 hover:border-purple-500/40 rounded-2xl p-4 cursor-pointer transition-all hover:bg-slate-850 shadow-sm group col-span-2 sm:col-span-1"
+        >
+          <div className="flex items-center justify-between text-purple-400 mb-2">
+            <span className="text-xs font-medium uppercase tracking-wider">Shift Handovers</span>
+            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400 group-hover:scale-105 transition-transform">
+              <Activity className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-bold font-mono-industrial text-purple-400">{unackHandoversCount}</span>
+            <span className="text-xs text-slate-400">pending</span>
+          </div>
+          <div className="mt-3 text-[11px] text-purple-400/80 flex items-center gap-1">
+            <span>{unackHandoversCount > 0 ? 'Action required' : 'All acknowledged'}</span>
           </div>
         </div>
       </div>
@@ -256,25 +477,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="text-[10px] text-slate-400 mt-1">Pending: {metrics.pendingRepairJobs}</div>
         </div>
 
-        {/* Repairs Completed Today */}
+        {/* Critical Unresolved Breakdowns */}
         <div 
           onClick={() => onNavigate('tickets')}
-          className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 hover:border-slate-700 cursor-pointer transition-all"
+          className="bg-slate-900 border border-red-900/40 rounded-xl p-3.5 hover:border-red-700 cursor-pointer transition-all"
         >
-          <div className="text-[11px] text-slate-400 uppercase font-medium">Repairs Today</div>
-          <div className="text-xl sm:text-2xl font-bold font-mono-industrial text-emerald-400 mt-1">
-            {metrics.repairsCompletedToday}
+          <div className="text-[11px] text-red-400 uppercase font-medium flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3 text-red-400" />
+            <span>Critical Faults</span>
           </div>
-          <div className="text-[10px] text-emerald-400/80 mt-1">Passed test run</div>
+          <div className="text-xl sm:text-2xl font-bold font-mono-industrial text-red-400 mt-1">
+            {metrics.criticalFaults}
+          </div>
+          <div className="text-[10px] text-red-400/80 mt-1">Line-stopping alarms</div>
         </div>
 
-        {/* Downtime Today */}
+        {/* Downtime Today & This Week */}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5">
-          <div className="text-[11px] text-slate-400 uppercase font-medium">Downtime Today</div>
+          <div className="text-[11px] text-slate-400 uppercase font-medium">Downtime (Today)</div>
           <div className="text-xl sm:text-2xl font-bold font-mono-industrial text-white mt-1">
             {metrics.downtimeTodayHours} <span className="text-xs font-normal text-slate-400">hrs</span>
           </div>
-          <div className="text-[10px] text-slate-400 mt-1">Month: {metrics.downtimeThisMonthHours} hrs</div>
+          <div className="text-[10px] text-slate-400 mt-1">Week: {metrics.downtimeThisWeekHours} hrs • Month: {metrics.downtimeThisMonthHours} hrs</div>
         </div>
 
         {/* MTTR (Mean Time To Repair) */}
@@ -286,7 +510,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="text-xl sm:text-2xl font-bold font-mono-industrial text-blue-400 mt-1">
             {metrics.mttrHours} <span className="text-xs font-normal text-slate-400">hrs</span>
           </div>
-          <div className="text-[10px] text-slate-400 mt-1">Mean Time to Repair</div>
+          <div className="text-[10px] text-slate-400 mt-1">Avg Repair: {metrics.avgRepairDurationHours} hrs</div>
         </div>
 
         {/* MTBF (Mean Time Between Failures) */}
@@ -301,18 +525,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="text-[10px] text-slate-400 mt-1">Mean Time Between Failures</div>
         </div>
 
-        {/* PM Compliance */}
+        {/* Maintenance Cost & Loss */}
         <div 
-          onClick={() => onNavigate('pm')}
+          onClick={() => onNavigate('reports')}
           className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 hover:border-slate-700 cursor-pointer transition-all"
         >
-          <div className="text-[11px] text-slate-400 uppercase font-medium">PM Compliance</div>
+          <div className="text-[11px] text-slate-400 uppercase font-medium">Maintenance Cost</div>
           <div className="text-xl sm:text-2xl font-bold font-mono-industrial text-emerald-400 mt-1">
-            {metrics.pmCompliancePct}%
+            ${(metrics.totalMaintenanceCost / 1000).toFixed(1)}k
           </div>
-          <div className="text-[10px] text-amber-400 mt-1">
-            {metrics.pmOverdue > 0 ? `${metrics.pmOverdue} Overdue` : 'All Up to Date'}
-          </div>
+          <div className="text-[10px] text-slate-400 mt-1">Prod Loss: ~${(metrics.estimatedProductionLoss / 1000).toFixed(1)}k</div>
         </div>
       </div>
 
@@ -330,7 +552,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div>
               <div className="text-xs font-semibold text-slate-200">Warranty Attention</div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {metrics.warrantyExpiringSoon} expiring soon • {metrics.warrantyExpired} expired
+                {metrics.warrantyExpiringSoon} expiring soon (&lt; 30d) • {metrics.warrantyExpired} expired
               </div>
             </div>
           </div>
@@ -356,7 +578,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </div>
 
-        {/* Spare Parts Low Stock */}
+        {/* Spare Parts Replenishment */}
         <div 
           onClick={() => onNavigate('spares')}
           className="bg-gradient-to-r from-rose-950/40 to-slate-900 border border-rose-800/40 rounded-xl p-3.5 flex items-center justify-between cursor-pointer hover:border-rose-700 transition-all"
@@ -368,7 +590,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div>
               <div className="text-xs font-semibold text-slate-200">Spare Parts Replenishment</div>
               <div className="text-[11px] text-slate-400 mt-0.5">
-                {metrics.lowStockPartsCount} items at or below minimum threshold
+                {metrics.lowStockPartsCount} below threshold ({metrics.outOfStockPartsCount} out of stock)
               </div>
             </div>
           </div>
@@ -386,12 +608,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <BarChart2 className="w-4 h-4 text-blue-400" />
                 Fault Category Breakdown & Pareto
               </h3>
-              <p className="text-[11px] text-slate-400">Ranking by downtime hours vs incident counts</p>
+              <p className="text-[11px] text-slate-400">Ranking by downtime hours vs incident frequency</p>
             </div>
             <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
               <button
                 onClick={() => setChartMetric('downtime')}
-                className={`px-2 py-0.5 rounded font-medium ${
+                className={`px-2 py-0.5 rounded font-medium cursor-pointer ${
                   chartMetric === 'downtime' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -399,7 +621,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </button>
               <button
                 onClick={() => setChartMetric('count')}
-                className={`px-2 py-0.5 rounded font-medium ${
+                className={`px-2 py-0.5 rounded font-medium cursor-pointer ${
                   chartMetric === 'count' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -443,7 +665,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
             {categoryList.length === 0 && (
               <div className="text-center py-8 text-xs text-slate-400">
-                No breakdown incidents recorded in this timeframe.
+                No breakdown incidents recorded in this filtered timeframe.
               </div>
             )}
           </div>
@@ -461,14 +683,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <button
               onClick={() => onNavigate('machines')}
-              className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
+              className="text-xs text-blue-400 hover:text-blue-300 hover:underline cursor-pointer"
             >
               All Machines
             </button>
           </div>
 
           <div className="space-y-3">
-            {machineDowntimeList.slice(0, 5).map((mItem, idx) => {
+            {machineDowntimeList.slice(0, 5).map((mItem) => {
               const pct = Math.max(5, Math.round((mItem.downtimeHours / maxMachineDowntime) * 100));
 
               return (
@@ -484,7 +706,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                     <div className="flex items-center gap-2 font-mono">
                       <span className="text-rose-400 font-semibold">{mItem.downtimeHours} hrs</span>
-                      <span className={`px-1.5 py-0.2 rounded text-[10px] capitalize ${
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] capitalize ${
                         mItem.machine.operatingStatus === 'running' 
                           ? 'bg-emerald-950 text-emerald-400' 
                           : mItem.machine.operatingStatus === 'breakdown' 
@@ -504,121 +726,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               );
             })}
-          </div>
-        </div>
-      </div>
-
-      {/* Customer Downtime & Monthly Trend Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Customer Distribution */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm lg:col-span-1">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-            <div>
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider font-heading-industrial flex items-center gap-2">
-                <Layers className="w-4 h-4 text-purple-400" />
-                Customer Downtime
-              </h3>
-              <p className="text-[11px] text-slate-400">Total outage by manufacturing client</p>
-            </div>
-            <button
-              onClick={() => onNavigate('customers')}
-              className="text-xs text-blue-400 hover:text-blue-300 hover:underline"
-            >
-              View All
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {customerDowntimeList.map((cItem) => (
-              <div 
-                key={cItem.customer.id} 
-                onClick={() => onNavigate('customers')}
-                className="p-2.5 rounded-lg bg-slate-950/40 border border-slate-800 hover:border-slate-700 cursor-pointer text-xs"
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-medium text-slate-200 truncate">{cItem.customer.name}</span>
-                  <span className="font-mono text-purple-300 font-bold">{cItem.downtimeHours} hrs</span>
-                </div>
-                <div className="text-[11px] text-slate-400 flex items-center justify-between">
-                  <span>{cItem.ticketCount} breakdown events</span>
-                  <span>{cItem.customer.registeredMachineCount || 0} machines</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Open Tickets / Action Required */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-sm lg:col-span-2">
-          <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-            <div>
-              <h3 className="text-sm font-semibold text-white uppercase tracking-wider font-heading-industrial flex items-center gap-2">
-                <Wrench className="w-4 h-4 text-red-400" />
-                Active Breakdown Queue & Interventions
-              </h3>
-              <p className="text-[11px] text-slate-400">Open tickets requiring diagnostics, parts or repair sign-off</p>
-            </div>
-            <button
-              onClick={onOpenNewTicket}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-            >
-              <span>+ New Ticket</span>
-            </button>
-          </div>
-
-          <div className="space-y-2.5">
-            {allTickets.filter(t => t.status !== 'Closed').slice(0, 4).map((ticket) => (
-              <div
-                key={ticket.id}
-                onClick={() => onSelectTicket(ticket)}
-                className="p-3 rounded-xl bg-slate-950/60 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 cursor-pointer transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-xs text-blue-400">{ticket.ticketNumber}</span>
-                    <span className="text-xs font-semibold text-white">{ticket.machineId}</span>
-                    <span className="text-xs text-slate-400">• {ticket.machineName}</span>
-                    <span className={`px-2 py-0.2 rounded text-[10px] font-semibold uppercase ${
-                      ticket.severityLevel === 'critical' 
-                        ? 'bg-red-950 text-red-400 border border-red-800/60' 
-                        : ticket.severityLevel === 'high' 
-                        ? 'bg-amber-950 text-amber-400 border border-amber-800/60' 
-                        : 'bg-blue-950 text-blue-400'
-                    }`}>
-                      {ticket.severityLevel}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 line-clamp-1">
-                    {ticket.alarmCode && <span className="font-mono text-amber-300 font-semibold mr-1.5">[{ticket.alarmCode}]</span>}
-                    {ticket.faultDescription}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
-                  <div className="text-right text-[11px]">
-                    <div className="text-slate-400">Downtime: <span className="font-mono text-slate-200 font-semibold">{ticket.totalDowntimeMinutes} min</span></div>
-                    <div className="text-slate-400 truncate max-w-[120px]">{ticket.technicianAssigned}</div>
-                  </div>
-                  <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                    ticket.status === 'Repair in Progress' 
-                      ? 'bg-blue-950 text-blue-400 border border-blue-800/60 animate-pulse' 
-                      : ticket.status === 'Waiting for Parts' 
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800/60' 
-                      : 'bg-purple-950 text-purple-400 border border-purple-800/60'
-                  }`}>
-                    {ticket.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-
-            {allTickets.filter(t => t.status !== 'Closed').length === 0 && (
-              <div className="p-8 text-center bg-slate-950/30 rounded-xl border border-slate-800/50">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-                <p className="text-xs font-medium text-slate-200">No Open Breakdowns in Queue</p>
-                <p className="text-[11px] text-slate-400 mt-1">All CNC lines are operating without active disruption.</p>
-              </div>
-            )}
           </div>
         </div>
       </div>

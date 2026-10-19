@@ -668,13 +668,40 @@ class StorageService {
   }
 
   // --- DASHBOARD KPIS & CALCULATIONS ---
-  public getDashboardMetrics(dateFilter: DateFilterOption = 'last30', customStart?: string, customEnd?: string) {
-    const machines = this.getMachines();
+  public getDashboardMetrics(
+    dateFilter: DateFilterOption = 'last30', 
+    customStart?: string, 
+    customEnd?: string,
+    filterOptions?: {
+      machineId?: string;
+      customerId?: string;
+      factory?: string;
+      department?: string;
+    }
+  ) {
+    const allMachines = this.getMachines();
     const allTickets = this.getTickets();
-    const filteredTickets = this.filterByDateRange(allTickets, dateFilter, customStart, customEnd);
     const pmTasks = this.getPMTasks();
     const warranties = this.getWarranties();
     const spareParts = this.getSpareParts();
+
+    // Filter machines by criteria if provided
+    const machines = allMachines.filter(m => {
+      if (filterOptions?.machineId && m.machineId !== filterOptions.machineId && m.id !== filterOptions.machineId) return false;
+      if (filterOptions?.customerId && m.customerId !== filterOptions.customerId) return false;
+      if (filterOptions?.factory && m.factory !== filterOptions.factory) return false;
+      if (filterOptions?.department && m.department !== filterOptions.department) return false;
+      return true;
+    });
+
+    const activeMachineIds = new Set(machines.map(m => m.machineId).concat(machines.map(m => m.id)));
+
+    // Filter tickets by machine criteria first
+    const scopedTickets = (filterOptions?.machineId || filterOptions?.customerId || filterOptions?.factory || filterOptions?.department)
+      ? allTickets.filter(t => activeMachineIds.has(t.machineId) || (filterOptions.customerId && t.customerId === filterOptions.customerId))
+      : allTickets;
+
+    const filteredTickets = this.filterByDateRange(scopedTickets, dateFilter, customStart, customEnd);
 
     const totalMachines = machines.length;
     const runningMachines = machines.filter(m => m.operatingStatus === 'running').length;
@@ -682,38 +709,64 @@ class StorageService {
     const breakdownMachines = machines.filter(m => m.operatingStatus === 'breakdown').length;
     const idleMachines = machines.filter(m => m.operatingStatus === 'idle').length;
 
-    const openTickets = allTickets.filter(t => t.status !== 'Closed' && t.status !== 'Resolved');
-    const pendingRepairJobs = allTickets.filter(t => t.status === 'Reported' || t.status === 'Assigned' || t.status === 'Waiting for Parts');
+    const openTickets = scopedTickets.filter(t => t.status !== 'Closed' && t.status !== 'Resolved');
+    const pendingRepairJobs = scopedTickets.filter(t => 
+      t.status === 'Reported' || 
+      t.status === 'Assigned' || 
+      t.status === 'Diagnosis in Progress' || 
+      t.status === 'Waiting for Parts'
+    );
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const repairsCompletedToday = allTickets.filter(t => 
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const sevenDaysAgoStr = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const curYearMonth = todayStr.substring(0, 7);
+
+    const repairsCompletedToday = scopedTickets.filter(t => 
       (t.status === 'Closed' || t.status === 'Resolved') &&
       ((t.closureDate && t.closureDate.startsWith(todayStr)) || (t.repairCompletion && t.repairCompletion.startsWith(todayStr)))
     ).length;
 
-    // Downtime today & this month
-    const curYearMonth = todayStr.substring(0, 7);
-    const ticketsToday = allTickets.filter(t => t.breakdownDate === todayStr);
-    const ticketsThisMonth = allTickets.filter(t => t.breakdownDate.startsWith(curYearMonth));
+    // Downtime today, this week (last 7 days), and this month
+    const ticketsToday = scopedTickets.filter(t => t.breakdownDate === todayStr);
+    const ticketsThisWeek = scopedTickets.filter(t => t.breakdownDate >= sevenDaysAgoStr && t.breakdownDate <= todayStr);
+    const ticketsThisMonth = scopedTickets.filter(t => t.breakdownDate.startsWith(curYearMonth));
 
     const totalDowntimeMinutesToday = ticketsToday.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0);
+    const totalDowntimeMinutesThisWeek = ticketsThisWeek.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0);
     const totalDowntimeMinutesThisMonth = ticketsThisMonth.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0);
+
+    // Total repair cost and estimated production loss
+    const totalPartsCost = filteredTickets.reduce((sum, t) => sum + (t.totalSparePartsCost || 0), 0);
+    const totalLaborCost = filteredTickets.reduce((sum, t) => sum + (t.totalLaborCost || 0), 0);
+    const totalMaintenanceCost = totalPartsCost + totalLaborCost;
+    
+    // Average repair duration
+    const allRepairsWithDuration = filteredTickets.filter(t => t.repairDurationMinutes > 0);
+    const avgRepairDurationMinutes = allRepairsWithDuration.length > 0 
+      ? Math.round(allRepairsWithDuration.reduce((sum, t) => sum + t.repairDurationMinutes, 0) / allRepairsWithDuration.length)
+      : 110;
 
     // MTTR calculation = Total repair duration of completed repairs / number of completed repairs
     const completedRepairs = filteredTickets.filter(t => (t.status === 'Closed' || t.status === 'Resolved') && t.repairDurationMinutes > 0);
     const totalRepairMinutes = completedRepairs.reduce((sum, t) => sum + t.repairDurationMinutes, 0);
     const mttrHours = completedRepairs.length > 0 ? parseFloat((totalRepairMinutes / completedRepairs.length / 60).toFixed(1)) : 1.8;
 
-    // MTBF calculation: Operating Hours basis / Number of qualifying breakdowns
-    // Standard industrial 2 shifts (16 hrs/day) * 30 days = 480 operating hours per machine per month
-    const totalOperatingHours = totalMachines * 480;
+    // MTBF calculation: Total operating time / Number of qualifying failures
+    const totalOperatingHours = Math.max(1, totalMachines) * 480; // Standard 2-shift 30-day baseline
     const qualifyingFailures = filteredTickets.filter(t => t.severityLevel === 'high' || t.severityLevel === 'critical').length || 1;
     const mtbfHours = Math.round(totalOperatingHours / qualifyingFailures);
 
     // Overall Machine Availability: (Planned Production Time - Downtime) / Planned Production Time * 100
     const totalDowntimeFilteredHours = filteredTickets.reduce((sum, t) => sum + (t.totalDowntimeMinutes || 0), 0) / 60;
-    const plannedProductionHours = totalMachines * 360; // 30-day baseline
-    const machineAvailabilityPct = Math.max(82.5, Math.min(99.8, parseFloat((((plannedProductionHours - totalDowntimeFilteredHours) / plannedProductionHours) * 100).toFixed(1))));
+    const plannedProductionHours = Math.max(1, totalMachines) * 360; // 30-day baseline planned run
+    const machineAvailabilityPct = Math.max(75.0, Math.min(99.9, parseFloat((((plannedProductionHours - totalDowntimeFilteredHours) / plannedProductionHours) * 100).toFixed(1))));
+
+    // Estimated production loss ($185/hr average CNC machining spindle capacity loss)
+    const estimatedProductionLoss = Math.round(totalDowntimeFilteredHours * 185);
+
+    // Breakdown frequency (tickets per machine in period)
+    const breakdownFrequency = totalMachines > 0 ? parseFloat((filteredTickets.length / totalMachines).toFixed(2)) : 0;
 
     // Preventive Maintenance stats
     const pmDue = pmTasks.filter(t => t.status === 'Scheduled').length;
@@ -726,10 +779,11 @@ class StorageService {
     const warrantyExpiringSoon = warranties.filter(w => w.status === 'Expiring Soon').length;
 
     // Critical Faults
-    const criticalFaults = allTickets.filter(t => t.severityLevel === 'critical' && t.status !== 'Closed').length;
+    const criticalFaults = scopedTickets.filter(t => t.severityLevel === 'critical' && t.status !== 'Closed').length;
 
     // Spare parts requiring replenishment
     const lowStockParts = spareParts.filter(p => p.quantityAvailable <= p.minStockLevel);
+    const outOfStockParts = spareParts.filter(p => p.quantityAvailable <= 0);
 
     return {
       totalMachines,
@@ -741,10 +795,17 @@ class StorageService {
       repairsCompletedToday,
       pendingRepairJobs: pendingRepairJobs.length,
       downtimeTodayHours: parseFloat((totalDowntimeMinutesToday / 60).toFixed(1)),
+      downtimeThisWeekHours: parseFloat((totalDowntimeMinutesThisWeek / 60).toFixed(1)),
       downtimeThisMonthHours: parseFloat((totalDowntimeMinutesThisMonth / 60).toFixed(1)),
+      avgRepairDurationHours: parseFloat((avgRepairDurationMinutes / 60).toFixed(1)),
       mttrHours,
       mtbfHours,
       machineAvailabilityPct,
+      totalMaintenanceCost,
+      totalPartsCost,
+      totalLaborCost,
+      estimatedProductionLoss,
+      breakdownFrequency,
       pmDue,
       pmOverdue,
       pmCompleted,
@@ -753,7 +814,15 @@ class StorageService {
       warrantyExpiringSoon,
       criticalFaults,
       lowStockPartsCount: lowStockParts.length,
-      lowStockParts
+      outOfStockPartsCount: outOfStockParts.length,
+      lowStockParts,
+      outOfStockParts,
+      calculationDefinitions: {
+        mttr: 'MTTR = Total repair duration of qualified completed repairs ÷ Number of completed repairs',
+        mtbf: 'MTBF = Total operating hours (2 shifts × 30 days = 480 hrs/machine) ÷ Qualifying high/critical failures',
+        availability: 'Availability = (Planned Production Time - Total Machine Downtime) ÷ Planned Production Time × 100',
+        oee: 'OEE = Availability (A) × Performance (P) × Quality (Q). Measures holistic manufacturing productivity.'
+      }
     };
   }
 

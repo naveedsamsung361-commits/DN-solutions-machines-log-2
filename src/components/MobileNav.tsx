@@ -14,7 +14,8 @@ import {
   BarChart3,
   X,
   Smartphone,
-  BellRing
+  BellRing,
+  Sparkles
 } from 'lucide-react';
 import { NavTab } from './Sidebar';
 
@@ -25,6 +26,7 @@ interface MobileNavProps {
   overduePMCount: number;
   onOpenAndroidInstall?: () => void;
   onOpenNotificationCenter?: () => void;
+  onOpenAIAssistant?: () => void;
 }
 
 export const MobileNav: React.FC<MobileNavProps> = ({
@@ -33,7 +35,8 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   openTicketCount,
   overduePMCount,
   onOpenAndroidInstall,
-  onOpenNotificationCenter
+  onOpenNotificationCenter,
+  onOpenAIAssistant
 }) => {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
@@ -139,6 +142,24 @@ export const MobileNav: React.FC<MobileNavProps> = ({
                   </button>
                 );
               })}
+
+              {onOpenAIAssistant && (
+                <button
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    onOpenAIAssistant();
+                  }}
+                  className="flex items-start gap-3 p-3 rounded-xl border border-indigo-700/60 bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900/60 text-left transition-all mt-2 cursor-pointer"
+                >
+                  <div className="p-2 rounded-lg bg-indigo-900/70 border border-indigo-700 text-indigo-300 shrink-0">
+                    <Sparkles className="w-4 h-4 text-indigo-200" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white">AI Maintenance Assistant</div>
+                    <div className="text-[11px] text-indigo-400/90 mt-0.5">Diagnose alarms, search tickets & analyze downtime</div>
+                  </div>
+                </button>
+              )}
 
               {onOpenNotificationCenter && (
                 <button

@@ -17,7 +17,8 @@ import {
   Smartphone,
   Calendar,
   ShieldAlert,
-  ExternalLink
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { storageService } from '../services/storage';
@@ -32,6 +33,7 @@ interface HeaderProps {
   onOpenHelp: () => void;
   onOpenImportExport: () => void;
   onOpenNotificationCenter?: () => void;
+  onOpenAIAssistant?: () => void;
   onGlobalSearch: (query: string) => void;
   searchQuery: string;
   onResetDemoData: () => void;
@@ -50,6 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenHelp,
   onOpenImportExport,
   onOpenNotificationCenter,
+  onOpenAIAssistant,
   onGlobalSearch,
   searchQuery,
   onResetDemoData,
@@ -127,6 +130,18 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Smartphone className="w-4 h-4 text-emerald-400" />
               <span className="hidden lg:inline">Android App</span>
+            </button>
+          )}
+
+          {/* AI Maintenance Assistant Button */}
+          {onOpenAIAssistant && (
+            <button
+              onClick={onOpenAIAssistant}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 bg-gradient-to-r from-indigo-600/30 to-blue-600/30 hover:from-indigo-600/50 hover:to-blue-600/50 border border-indigo-500/40 text-indigo-200 hover:text-white rounded-lg text-xs font-semibold shadow transition-all cursor-pointer"
+              title="Open AI Maintenance Assistant"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-300 animate-pulse" />
+              <span className="hidden lg:inline">AI Assistant</span>
             </button>
           )}
 

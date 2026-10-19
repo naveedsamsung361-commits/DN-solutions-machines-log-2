@@ -82,6 +82,8 @@ export type TicketStatus =
   | 'Waiting for Approval'
   | 'Repair in Progress'
   | 'Testing'
+  | 'Awaiting Quality Approval'
+  | 'Awaiting Restart Approval'
   | 'Resolved'
   | 'Closed';
 
@@ -471,3 +473,29 @@ export interface NotificationSettings {
   pmOverdueAlerts: boolean;
   lowInventoryAlerts: boolean;
 }
+
+export interface DashboardMultiFilter {
+  dateRange: DateFilterOption;
+  customStart?: string;
+  customEnd?: string;
+  machineId?: string;
+  customerId?: string;
+  factory?: string;
+  department?: string;
+}
+
+export interface AICitation {
+  recordType: 'ticket' | 'machine' | 'part' | 'pm' | 'handover';
+  recordId: string;
+  label: string;
+}
+
+export interface AIMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  citations?: AICitation[];
+  isDiagnostic?: boolean;
+}
+

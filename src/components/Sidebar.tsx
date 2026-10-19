@@ -13,7 +13,8 @@ import {
   BarChart3,
   AlertOctagon,
   Clock,
-  ExternalLink
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 import { UserRole } from '../types';
 
@@ -38,6 +39,7 @@ interface SidebarProps {
   warrantyExpiringCount: number;
   lowStockCount: number;
   userRole: UserRole;
+  onOpenAIAssistant?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -47,7 +49,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   overduePMCount,
   warrantyExpiringCount,
   lowStockCount,
-  userRole
+  userRole,
+  onOpenAIAssistant
 }) => {
   const navItems: { id: NavTab; label: string; icon: React.ElementType; badge?: number; badgeColor?: string; roleRestricted?: boolean }[] = [
     { id: 'dashboard', label: 'Operations Dashboard', icon: LayoutDashboard },
@@ -132,15 +135,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Industrial Hardware Badge */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950/40">
-        <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-2.5 text-xs">
-          <div className="flex items-center justify-between text-slate-400 text-[11px] mb-1">
+      {/* AI Assistant Quick Trigger & Hardware Badge */}
+      <div className="p-3 border-t border-slate-800 bg-slate-950/40 space-y-2">
+        {onOpenAIAssistant && (
+          <button
+            onClick={onOpenAIAssistant}
+            className="w-full flex items-center justify-between p-2.5 rounded-xl bg-gradient-to-r from-indigo-950/70 to-blue-950/70 hover:from-indigo-900/80 hover:to-blue-900/80 border border-indigo-500/40 text-left transition-all shadow-sm group cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400 group-hover:scale-105 transition-transform">
+                <Sparkles className="w-4 h-4 text-indigo-300" />
+              </div>
+              <div>
+                <span className="text-xs font-bold text-white block">AI Assistant</span>
+                <span className="text-[10px] text-indigo-300/80 block">Troubleshoot & search</span>
+              </div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-indigo-400 opacity-70 group-hover:opacity-100" />
+          </button>
+        )}
+
+        <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-2 text-xs">
+          <div className="flex items-center justify-between text-slate-400 text-[10px] mb-0.5">
             <span className="font-semibold text-slate-300">CNC Controller Link</span>
-            <span className="text-emerald-400 font-mono">FOCAS / OPC UA</span>
+            <span className="text-emerald-400 font-mono">OPC UA / FOCAS</span>
           </div>
-          <p className="text-[10px] text-slate-400 leading-relaxed">
-            Active monitoring across Fanuc, Siemens & Mitsubishi lines.
+          <p className="text-[10px] text-slate-400 leading-tight">
+            Fanuc, Siemens, Heidenhain & Mitsubishi live telemetry bridges.
           </p>
         </div>
       </div>
