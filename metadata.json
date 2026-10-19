@@ -1,0 +1,6 @@
+{
+  "name": "DN SOLUTIONS MACHINE OPERATIONS HUB",
+  "description": "Centralized industrial operations hub for DN Solutions CNC machines: Machine Fix Log, breakdown management, real-time downtime tracking, warranty management, preventive maintenance, and shop-floor analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
